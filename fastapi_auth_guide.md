@@ -14,6 +14,7 @@ A step-by-step guide for intermediate backend developers. This document covers J
 
 ## Table of Contents
 
+0. [Stack & design choices](#stack--design-choices-why-this-combo-is-solid)  
 1. [Architecture Overview](#1-architecture-overview)
 2. [Project Folder Structure](#2-project-folder-structure)
 3. [Environment Configuration](#3-environment-configuration)
@@ -30,6 +31,27 @@ A step-by-step guide for intermediate backend developers. This document covers J
 14. [Testing Strategy](#14-testing-strategy)
 15. [Extending the System](#15-extending-the-system)
 16. [Production Deployment & Security](#16-production-deployment--security)
+
+---
+
+## Stack & design choices (why this combo is solid)
+
+This guide uses a **single, consistent stack** that is production-proven and easy to maintain. No optional alternatives are mixed in.
+
+| Layer | Choice | Why it’s solid |
+|-------|--------|-----------------|
+| **API** | FastAPI | Async-capable, automatic OpenAPI, built-in validation and dependency injection. |
+| **Config** | Pydantic Settings + `.env` | One source of truth, validated at startup, type-safe. No scattered `os.getenv`. |
+| **Validation / schemas** | Pydantic | Same as FastAPI’s native model; request/response validation and serialization in one place. |
+| **Database** | PostgreSQL + SQLAlchemy (sync) | PostgreSQL: robust, ACID, good for auth and tokens. SQLAlchemy: standard Python ORM; sync keeps the guide simple; async is possible later via `async_database_url`. |
+| **Driver** | psycopg2-binary | Official PostgreSQL adapter; binary wheel avoids compile issues. |
+| **Passwords** | passlib + bcrypt | Industry standard; bcrypt is slow by design (good for passwords); passlib gives a stable API and rounds control. |
+| **Tokens** | python-jose (JWT) | Implements JWT (RFC 7519); supports HS256 and RS256; stable and widely used. |
+| **Algorithm** | HS256 | Symmetric signing; fine for one server or a small set of services sharing one secret. Use RS256 if you need asymmetric (e.g. many verifiers, one signer). |
+| **Auth flow** | Access + refresh tokens | Short-lived access tokens limit exposure; refresh tokens allow re-issue without re-login; refresh stored in DB for revocation. |
+| **Structure** | Routers → services → repositories | Clear separation: HTTP in routers, business logic in services, data access in repositories. Easy to test and extend. |
+
+**What we don’t use here (and why we keep it simple):** No extra DI framework (FastAPI’s `Depends` is enough), no cache layer in the baseline (add later if needed), no async DB in the main guide (optional via `async_database_url`). This keeps the guide **one clear path** and avoids “maybe use X or Y” so you get a single, solid combo you can ship and extend.
 
 ---
 
@@ -186,7 +208,7 @@ project_root/
 │
 ├── .env.example
 ├── .env                            # Not committed; from .env.example
-├── requirements.txt                # Include: fastapi, uvicorn, sqlalchemy, psycopg2-binary, python-jose, passlib[bcrypt], pydantic-settings
+├── requirements.txt                # fastapi, uvicorn, sqlalchemy, psycopg2-binary, python-jose[cryptography], passlib[bcrypt], pydantic-settings
 └── README.md
 ```
 
@@ -487,7 +509,7 @@ class RefreshRequest(BaseModel):
 
 **What you’ll learn:** How we hash passwords (so we never store plain text) and how we create and verify JWTs (so the client can prove who they are on each request).
 
-**Key idea:** All password and token logic lives in one module (`core/security.py`). Every part of the app that needs to hash, verify, or issue tokens uses these functions. That way we have a single place to change algorithm or expiry.
+**Key idea:** All password and token logic lives in one module (`core/security.py`). We use **passlib + bcrypt** for passwords and **python-jose** for JWT—a solid, widely used combo. Every part of the app that needs to hash, verify, or issue tokens uses these functions so there is a single place to change algorithm or expiry.
 
 **Concepts in one sentence:**  
 - **Hashing (passwords):** We turn a password into a fixed string with bcrypt. We can check “does this password match this hash?” but we cannot get the password back from the hash.  
